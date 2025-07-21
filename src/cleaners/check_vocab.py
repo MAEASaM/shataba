@@ -1,12 +1,13 @@
 import pandas as pd
 import xml.etree.ElementTree as ET
 from glom import glom
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import re
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich.table import Table
 
 # Regex patterns for parsing JSON-like structures in XML
 ID_PATTERN = re.compile(r'"id":\s*"([^"]+)"')
@@ -21,13 +22,11 @@ Captures the value of the "value" field (e.g., 'some_value')."""
 console = Console()
 
 
-def check_vocab(
-    df: pd.DataFrame,
-    resource_model: dict[str, dict[str, list[dict[str, str]]]],
-    concepts: dict[str, list[str]],
-) -> pd.DataFrame:
+def validate_and_clean_concept_values(
+    df: pd.DataFrame, resource_model: dict, concepts: dict
+) -> Tuple[pd.DataFrame, Dict]:
     """
-    Check vocabulary and build concept node mappings.
+    Validate concept values against acceptable concepts and remove offending values.
 
     Args:
         df: Input DataFrame
@@ -35,8 +34,180 @@ def check_vocab(
         concepts: Site_concepts.json structure
 
     Returns:
-        DataFrame with concept node mappings
+        Tuple of (cleaned_dataframe, validation_report)
     """
+    # Get concept mappings to identify which columns are concept fields
+    concept_mappings = build_concept_mappings(resource_model, concepts)
+
+    # Create a mapping of column names to their concept categories
+    column_to_concept = {}
+    for node_name, mapping in concept_mappings.items():
+        concept_category = mapping.get("concept_category")
+        if concept_category:
+            # Map the node name to its concept category
+            column_to_concept[node_name] = concept_category
+
+    validation_report = {
+        "total_rows": len(df),
+        "columns_checked": [],
+        "offending_values_found": 0,
+        "offending_values_removed": 0,
+        "details": {},
+    }
+
+    # Create a copy of the dataframe and convert to object dtype to avoid PyArrow issues
+    cleaned_df = df.copy()
+
+    # Check each concept column
+    for column_name, concept_category in column_to_concept.items():
+        if column_name in cleaned_df.columns:
+            validation_report["columns_checked"].append(column_name)
+
+            # Get acceptable values for this concept category
+            acceptable_values = set(concepts.get(concept_category, {}).values())
+
+            # Convert column to string type to avoid PyArrow issues
+            column_data = cleaned_df[column_name].astype(str)
+
+            # Find offending values
+            offending_mask = (
+                ~column_data.isin(acceptable_values)
+                & (column_data != "nan")
+                & (column_data != "")
+            )
+
+            if offending_mask.any():
+                offending_count = offending_mask.sum()
+                validation_report["offending_values_found"] += offending_count
+                validation_report["details"][column_name] = {
+                    "concept_category": concept_category,
+                    "offending_count": offending_count,
+                    "offending_values": column_data[offending_mask].unique().tolist(),
+                    "acceptable_count": len(acceptable_values),
+                }
+
+                # Convert the column to object dtype to allow string assignment
+                cleaned_df[column_name] = cleaned_df[column_name].astype(object)
+
+                # Remove offending values by setting them to empty string
+                cleaned_df.loc[offending_mask, column_name] = ""
+                validation_report["offending_values_removed"] += offending_count
+
+                console.print(
+                    Panel(
+                        Text(
+                            f"Found {offending_count} offending values in column '{column_name}' "
+                            f"(concept category: {concept_category}). Values removed.",
+                            style="yellow",
+                        ),
+                        title="Validation Warning",
+                    )
+                )
+
+    return cleaned_df, validation_report
+
+
+def create_validation_report_table(validation_report: dict) -> Table:
+    """Create a rich table for the validation report."""
+    table = Table(
+        title="Concept Validation Report", show_header=True, header_style="bold red"
+    )
+
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Count", justify="right", style="green")
+
+    metrics = [
+        ("Total Rows Processed", validation_report["total_rows"]),
+        ("Columns Checked", len(validation_report["columns_checked"])),
+        ("Offending Values Found", validation_report["offending_values_found"]),
+        ("Offending Values Removed", validation_report["offending_values_removed"]),
+    ]
+
+    for metric, count in metrics:
+        table.add_row(metric, str(count))
+
+    return table
+
+
+def create_offending_values_table(validation_report: dict) -> Table:
+    """Create a rich table showing detailed offending values."""
+    if not validation_report["details"]:
+        return None
+
+    table = Table(
+        title="Detailed Offending Values", show_header=True, header_style="bold yellow"
+    )
+
+    table.add_column("Column", style="cyan", no_wrap=True)
+    table.add_column("Concept Category", style="blue")
+    table.add_column("Offending Count", justify="right", style="red")
+    table.add_column("Acceptable Count", justify="right", style="green")
+    table.add_column("Sample Offending Values", style="dim")
+
+    for column_name, details in validation_report["details"].items():
+        sample_values = details["offending_values"][:3]  # Show first 3 values
+        sample_text = ", ".join(sample_values)
+        if len(details["offending_values"]) > 3:
+            sample_text += f" ... (+{len(details['offending_values']) - 3} more)"
+
+        table.add_row(
+            column_name,
+            details["concept_category"],
+            str(details["offending_count"]),
+            str(details["acceptable_count"]),
+            sample_text,
+        )
+
+    return table
+
+
+def check_vocab(
+    df: pd.DataFrame,
+    resource_model: dict[str, dict[str, list[dict[str, str]]]],
+    concepts: dict[str, list[str]],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Check vocabulary, validate concept values, and build concept node mappings.
+
+    Args:
+        df: Input DataFrame
+        resource_model: Site.json structure
+        concepts: Site_concepts.json structure
+
+    Returns:
+        Tuple of (concept_mappings_dataframe, cleaned_dataframe)
+    """
+    # Validate and clean concept values first
+    console.print(
+        Panel(
+            Text(
+                "Validating concept values against acceptable concepts...", style="blue"
+            ),
+            title="🔍 Validation Phase",
+        )
+    )
+
+    cleaned_df, validation_report = validate_and_clean_concept_values(
+        df, resource_model, concepts
+    )
+
+    # Display validation results
+    if validation_report["offending_values_found"] > 0:
+        console.print("\n")
+        console.print(create_validation_report_table(validation_report))
+
+        detailed_table = create_offending_values_table(validation_report)
+        if detailed_table:
+            console.print("\n")
+            console.print(detailed_table)
+    else:
+        console.print(
+            Panel(
+                Text("✅ All concept values are valid!", style="green"),
+                title="Validation Complete",
+            )
+        )
+
     # Get concept nodes from resource model
     concept_nodes = get_type_concept(resource_model)
 
@@ -58,7 +229,7 @@ def check_vocab(
             }
         )
 
-    return pd.DataFrame(mapping_data)
+    return pd.DataFrame(mapping_data), cleaned_df
 
 
 def get_type_concept(
