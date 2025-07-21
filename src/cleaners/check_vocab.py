@@ -1,9 +1,9 @@
 import pandas as pd
-import json
 import xml.etree.ElementTree as ET
 from glom import glom
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
+import re
 
 
 def check_vocab(
@@ -122,7 +122,9 @@ def build_concept_mappings(resource_model: dict, concepts: dict) -> Dict[str, Di
     return mappings
 
 
-def parse_collections_xml(collections_file_path: Optional[str] = "references/collections.xml") -> Dict[str, Dict]:
+def parse_collections_xml(
+    collections_file_path: Optional[str] = "references/collections.xml",
+) -> Dict[str, Dict]:
     """
     Parse collections.xml to extract UUID to label mappings.
 
@@ -134,7 +136,9 @@ def parse_collections_xml(collections_file_path: Optional[str] = "references/col
     """
     collections_file = Path(collections_file_path)
     if not collections_file.exists():
-        print(f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it.")
+        print(
+            f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it."
+        )
         return {}
 
     try:
@@ -170,7 +174,6 @@ def parse_collections_xml(collections_file_path: Optional[str] = "references/col
                     if label_text and label_text.startswith('{"id":'):
                         try:
                             # Parse the JSON-like structure
-                            import re
 
                             id_match = re.search(r'"id":\s*"([^"]+)"', label_text)
                             value_match = re.search(r'"value":\s*"([^"]+)"', label_text)
@@ -184,13 +187,17 @@ def parse_collections_xml(collections_file_path: Optional[str] = "references/col
                                     "label_id": label_id,
                                 }
                         except Exception as e:
-                            print(f"Error parsing label for collection {uuid}. Label text: {label_text}. Error: {e}")
+                            print(
+                                f"Error parsing label for collection {uuid}. Label text: {label_text}. Error: {e}"
+                            )
 
         return collections_mapping
 
     except Exception as e:
-        print(f"Error parsing collections.xml at {collections_file}: {e}. "
-              f"Please check if the file exists, is well-formed XML, and has the correct permissions.")
+        print(
+            f"Error parsing collections.xml at {collections_file}: {e}. "
+            f"Please check if the file exists, is well-formed XML, and has the correct permissions."
+        )
         return {}
 
 
