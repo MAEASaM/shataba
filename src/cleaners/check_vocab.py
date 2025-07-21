@@ -131,7 +131,7 @@ def parse_collections_xml() -> Dict[str, Dict]:
     """
     collections_file = Path("references/collections.xml")
     if not collections_file.exists():
-        print(f"Warning: {collections_file} not found")
+        print(f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it.")
         return {}
 
     try:
