@@ -181,7 +181,7 @@ def main():
             resource_model = json.load(f)
 
         progress.update(task, description="Processing concept mappings...")
-        concept_mappings_df = check_vocab(df, resource_model, concepts)
+        concept_mappings_df, cleaned_df = check_vocab(df, resource_model, concepts)
 
         progress.update(task, description="Complete!", completed=True)
 
@@ -194,6 +194,12 @@ def main():
         console.print(create_summary_table(summary))
         console.print("\n")
         console.print(create_mappings_table(summary))
+
+    # Save the cleaned data to the output file
+    cleaned_df.to_csv(args.output, index=False)
+    console.print(
+        f"\n[green]✓[/green] Cleaned data saved to: [cyan]{args.output}[/cyan]"
+    )
 
     # Save the concept mappings to a separate file
     mappings_output = OUTPUT_DIR / f"{args.input.stem}_concept_mappings.csv"
