@@ -111,9 +111,11 @@ def create_concept_mappings_table(concept_mappings_df: pd.DataFrame) -> Table:
             table.add_column(col, style="dim")
 
     # Add rows
-    for _, row in concept_mappings_df.iterrows():
-        table.add_row(*[str(val) if val is not None else "N/A" for val in row.values])
+    # Preprocess DataFrame: fill missing values and convert all values to strings
+    concept_mappings_df = concept_mappings_df.fillna("N/A").astype(str)
 
+    for row in concept_mappings_df.itertuples(index=False):
+        table.add_row(*row)
     return table
 
 
