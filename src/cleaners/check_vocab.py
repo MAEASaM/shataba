@@ -122,14 +122,17 @@ def build_concept_mappings(resource_model: dict, concepts: dict) -> Dict[str, Di
     return mappings
 
 
-def parse_collections_xml() -> Dict[str, Dict]:
+def parse_collections_xml(collections_file_path: Optional[str] = "references/collections.xml") -> Dict[str, Dict]:
     """
     Parse collections.xml to extract UUID to label mappings.
+
+    Args:
+        collections_file_path: Path to the collections.xml file. Defaults to "references/collections.xml".
 
     Returns:
         Dictionary mapping collection UUIDs to their labels
     """
-    collections_file = Path("references/collections.xml")
+    collections_file = Path(collections_file_path)
     if not collections_file.exists():
         print(f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it.")
         return {}
