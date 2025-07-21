@@ -41,6 +41,10 @@ def main():
         args.concepts = REFERENCES_DIR / (
             f"{args.resource_model_type.value.replace('_', ' ').title()}_concepts.json"
         )
+    if args.resource_model_file is None:
+        args.resource_model_file = REFERENCES_DIR / (
+            f"{args.resource_model_type.value.replace('_', ' ').title()}.json"
+        )
 
     df = pd.read_csv(args.input, dtype_backend="pyarrow")  # use_nullable_dtypes=True)
 
