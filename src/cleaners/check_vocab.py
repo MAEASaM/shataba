@@ -189,7 +189,8 @@ def parse_collections_xml(collections_file_path: Optional[str] = "references/col
         return collections_mapping
 
     except Exception as e:
-        print(f"Error parsing collections.xml: {e}")
+        print(f"Error parsing collections.xml at {collections_file}: {e}. "
+              f"Please check if the file exists, is well-formed XML, and has the correct permissions.")
         return {}
 
 
