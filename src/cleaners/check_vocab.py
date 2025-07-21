@@ -5,6 +5,10 @@ from typing import Dict, List, Optional
 from pathlib import Path
 import re
 
+# Regex patterns for parsing JSON-like structures in XML
+ID_PATTERN = re.compile(r'"id":\s*"([^"]+)"')
+VALUE_PATTERN = re.compile(r'"value":\s*"([^"]+)"')
+
 
 def check_vocab(
     df: pd.DataFrame,
