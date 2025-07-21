@@ -193,10 +193,22 @@ def parse_collections_xml(
 
         return collections_mapping
 
-    except Exception as e:
+    except ET.ParseError as e:
         print(
-            f"Error parsing collections.xml at {collections_file}: {e}. "
-            f"Please check if the file exists, is well-formed XML, and has the correct permissions."
+            f"Error parsing collections.xml at {collections_file}: Malformed XML. {e}. "
+            f"Please ensure the file is well-formed XML."
+        )
+        return {}
+    except FileNotFoundError as e:
+        print(
+            f"Error: collections.xml file not found at {collections_file}. {e}. "
+            f"Please check the file path and ensure the file exists."
+        )
+        return {}
+    except PermissionError as e:
+        print(
+            f"Error: Permission denied when accessing collections.xml at {collections_file}. {e}. "
+            f"Please check the file permissions."
         )
         return {}
 
