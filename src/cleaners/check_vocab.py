@@ -184,7 +184,7 @@ def parse_collections_xml(collections_file_path: Optional[str] = "references/col
                                     "label_id": label_id,
                                 }
                         except Exception as e:
-                            print(f"Error parsing label for collection {uuid}: {e}")
+                            print(f"Error parsing label for collection {uuid}. Label text: {label_text}. Error: {e}")
 
         return collections_mapping
 
