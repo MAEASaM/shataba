@@ -4,10 +4,15 @@ from glom import glom
 from typing import Dict, List, Optional
 from pathlib import Path
 import re
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 # Regex patterns for parsing JSON-like structures in XML
 ID_PATTERN = re.compile(r'"id":\s*"([^"]+)"')
 VALUE_PATTERN = re.compile(r'"value":\s*"([^"]+)"')
+
+console = Console()
 
 
 def check_vocab(
@@ -140,8 +145,14 @@ def parse_collections_xml(
     """
     collections_file = Path(collections_file_path)
     if not collections_file.exists():
-        print(
-            f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it."
+        console.print(
+            Panel(
+                Text(
+                    f"Warning: {collections_file} not found. Ensure the file exists at the expected location ('references/collections.xml') or consult the documentation for instructions on how to obtain it.",
+                    style="yellow",
+                ),
+                title="Warning",
+            )
         )
         return {}
 
@@ -191,28 +202,52 @@ def parse_collections_xml(
                                     "label_id": label_id,
                                 }
                         except Exception as e:
-                            print(
-                                f"Error parsing label for collection {uuid}. Label text: {label_text}. Error: {e}"
+                            console.print(
+                                Panel(
+                                    Text(
+                                        f"Error parsing label for collection {uuid}. Label text: {label_text}. Error: {e}",
+                                        style="red",
+                                    ),
+                                    title="Error",
+                                )
                             )
 
         return collections_mapping
 
     except ET.ParseError as e:
-        print(
-            f"Error parsing collections.xml at {collections_file}: Malformed XML. {e}. "
-            f"Please ensure the file is well-formed XML."
+        console.print(
+            Panel(
+                Text(
+                    f"Error parsing collections.xml at {collections_file}: Malformed XML. {e}. "
+                    f"Please ensure the file is well-formed XML.",
+                    style="red",
+                ),
+                title="Error",
+            )
         )
         return {}
     except FileNotFoundError as e:
-        print(
-            f"Error: collections.xml file not found at {collections_file}. {e}. "
-            f"Please check the file path and ensure the file exists."
+        console.print(
+            Panel(
+                Text(
+                    f"Error: collections.xml file not found at {collections_file}. {e}. "
+                    f"Please check the file path and ensure the file exists.",
+                    style="red",
+                ),
+                title="Error",
+            )
         )
         return {}
     except PermissionError as e:
-        print(
-            f"Error: Permission denied when accessing collections.xml at {collections_file}. {e}. "
-            f"Please check the file permissions."
+        console.print(
+            Panel(
+                Text(
+                    f"Error: Permission denied when accessing collections.xml at {collections_file}. {e}. "
+                    f"Please check the file permissions.",
+                    style="red",
+                ),
+                title="Error",
+            )
         )
         return {}
 

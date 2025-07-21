@@ -8,4 +8,5 @@ dependencies = [
     "glom>=24.11.0",
     "pandas>=2.3.1",
     "pyarrow>=21.0.0",
+    "rich>=13.0.0",
 ]
