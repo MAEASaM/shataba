@@ -48,8 +48,10 @@ def main():
 
     df = pd.read_csv(args.input, dtype_backend="pyarrow")  # use_nullable_dtypes=True)
 
-    concepts = json.load(open(args.concepts))
-    resource_model = json.load(open(args.resource_model_file))
+    with open(args.concepts) as f:
+        concepts = json.load(f)
+    with open(args.resource_model_file) as f:
+        resource_model = json.load(f)
 
     concepts_nodes = check_vocab(df, resource_model, concepts)
     print(concepts_nodes)
