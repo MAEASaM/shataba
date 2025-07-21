@@ -10,7 +10,13 @@ from rich.text import Text
 
 # Regex patterns for parsing JSON-like structures in XML
 ID_PATTERN = re.compile(r'"id":\s*"([^"]+)"')
+"""Regex pattern to extract the value of the "id" field from a JSON-like string in XML.
+Matches strings of the format: '"id": "some_value"'.
+Captures the value of the "id" field (e.g., 'some_value')."""
 VALUE_PATTERN = re.compile(r'"value":\s*"([^"]+)"')
+"""Regex pattern to extract the value of the "value" field from a JSON-like string in XML.
+Matches strings of the format: '"value": "some_value"'.
+Captures the value of the "value" field (e.g., 'some_value')."""
 
 console = Console()
 
