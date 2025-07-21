@@ -175,8 +175,8 @@ def parse_collections_xml(
                         try:
                             # Parse the JSON-like structure
 
-                            id_match = re.search(r'"id":\s*"([^"]+)"', label_text)
-                            value_match = re.search(r'"value":\s*"([^"]+)"', label_text)
+                            id_match = ID_PATTERN.search(label_text)
+                            value_match = VALUE_PATTERN.search(label_text)
 
                             if id_match and value_match:
                                 label_id = id_match.group(1)
