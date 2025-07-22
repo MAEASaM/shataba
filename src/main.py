@@ -130,7 +130,9 @@ def create_validation_report_table(validation_report: Dict) -> Table:
     table.add_column("Metric", style="cyan")
     table.add_column("Count", style="magenta")
 
-    table.add_row("Total Rows Processed", str(validation_report.get("total_rows", 0)))
+    table.add_row(
+        "Total Rows Processed", str(validation_report.get("total_rows_processed", 0))
+    )
     table.add_row(
         "Columns Checked", str(len(validation_report.get("columns_checked", [])))
     )
@@ -142,7 +144,7 @@ def create_validation_report_table(validation_report: Dict) -> Table:
         "Offending Values Removed",
         str(validation_report.get("offending_values_removed", 0)),
     )
-    table.add_row("Values Cleaned", str(validation_report.get("values_cleaned", 0)))
+    table.add_row("Values Mapped", str(validation_report.get("values_mapped", 0)))
 
     return table
 
