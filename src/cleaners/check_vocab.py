@@ -58,45 +58,68 @@ def validate_and_clean_concept_values(
     # Create a copy of the dataframe and convert to object dtype to avoid PyArrow issues
     cleaned_df = df.copy()
 
+    def normalize_value(value):
+        """Normalize a value for comparison by removing non-alphanumeric characters and converting to lowercase."""
+        if pd.isna(value) or value == "":
+            return ""
+        # Convert to string, remove non-alphanumeric characters, convert to lowercase
+        return re.sub(r"[^a-zA-Z0-9]", "", str(value).lower())
+
     # Check each concept column
     for column_name, concept_category in column_to_concept.items():
-        if column_name in cleaned_df.columns:
-            validation_report["columns_checked"].append(column_name)
+        # Find the actual column in the dataframe (case-insensitive matching)
+        matching_column = None
+        for actual_column in cleaned_df.columns:
+            if actual_column.lower() == column_name.lower():
+                matching_column = actual_column
+                break
 
-            # Get acceptable values for this concept category
-            acceptable_values = set(concepts.get(concept_category, {}).values())
+        if matching_column:
+            validation_report["columns_checked"].append(matching_column)
+
+            # Get acceptable values for this concept category and normalize them
+            acceptable_values_raw = set(concepts.get(concept_category, {}).values())
+            acceptable_values_normalized = {
+                normalize_value(val) for val in acceptable_values_raw
+            }
 
             # Convert column to string type to avoid PyArrow issues
-            column_data = cleaned_df[column_name].astype(str)
+            column_data = cleaned_df[matching_column].astype("string[pyarrow]")
 
-            # Find offending values
-            offending_mask = (
-                ~column_data.isin(acceptable_values)
-                & (column_data != "nan")
-                & (column_data != "")
-            )
+            # Normalize the column data for comparison
+            column_data_normalized = column_data.apply(normalize_value)
+
+            # Find offending values (values that don't match any normalized acceptable value)
+            offending_mask = ~column_data_normalized.isin(
+                acceptable_values_normalized
+            ) & (column_data_normalized != "")
 
             if offending_mask.any():
                 offending_count = offending_mask.sum()
                 validation_report["offending_values_found"] += offending_count
-                validation_report["details"][column_name] = {
+                validation_report["details"][matching_column] = {
                     "concept_category": concept_category,
                     "offending_count": offending_count,
                     "offending_values": column_data[offending_mask].unique().tolist(),
-                    "acceptable_count": len(acceptable_values),
+                    "acceptable_count": len(acceptable_values_raw),
+                    "sample_acceptable_values": list(acceptable_values_raw)[
+                        :5
+                    ],  # Show first 5 acceptable values
                 }
 
                 # Convert the column to object dtype to allow string assignment
-                cleaned_df[column_name] = cleaned_df[column_name].astype(object)
+                cleaned_df[matching_column] = cleaned_df[matching_column].astype(
+                    "string[pyarrow]"
+                )
 
                 # Remove offending values by setting them to empty string
-                cleaned_df.loc[offending_mask, column_name] = ""
+                cleaned_df.loc[offending_mask, matching_column] = ""
                 validation_report["offending_values_removed"] += offending_count
 
                 console.print(
                     Panel(
                         Text(
-                            f"Found {offending_count} offending values in column '{column_name}' "
+                            f"Found {offending_count} offending values in column '{matching_column}' "
                             f"(concept category: {concept_category}). Values removed.",
                             style="yellow",
                         ),
@@ -143,6 +166,7 @@ def create_offending_values_table(validation_report: dict) -> Table:
     table.add_column("Offending Count", justify="right", style="red")
     table.add_column("Acceptable Count", justify="right", style="green")
     table.add_column("Sample Offending Values", style="dim")
+    table.add_column("Sample Acceptable Values", style="green")
 
     for column_name, details in validation_report["details"].items():
         sample_values = details["offending_values"][:3]  # Show first 3 values
@@ -150,12 +174,18 @@ def create_offending_values_table(validation_report: dict) -> Table:
         if len(details["offending_values"]) > 3:
             sample_text += f" ... (+{len(details['offending_values']) - 3} more)"
 
+        sample_acceptable = details.get("sample_acceptable_values", [])
+        sample_acceptable_text = ", ".join(sample_acceptable[:3])
+        if len(sample_acceptable) > 3:
+            sample_acceptable_text += f" ... (+{len(sample_acceptable) - 3} more)"
+
         table.add_row(
             column_name,
             details["concept_category"],
             str(details["offending_count"]),
             str(details["acceptable_count"]),
             sample_text,
+            sample_acceptable_text,
         )
 
     return table
