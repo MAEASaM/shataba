@@ -35,13 +35,19 @@ def normalize_value(value):
 
 def clean_value_for_concept_file(value):
     """
-    Clean a value to match concept file format by removing non-alphanumeric characters.
-    This is used to transform data values to match the clean format in concept files.
+    Clean a value to match concept file format by replacing non-alphanumeric characters with spaces.
+    Preserves capitalization and ensures only single spaces between words.
     """
     if pd.isna(value) or value == "" or value is None:
         return ""
-    # Remove all non-alphanumeric characters and convert to lowercase
-    return re.sub(r"[^a-zA-Z0-9]", "", str(value).lower())
+
+    # Convert to string and replace non-alphanumeric characters with spaces
+    cleaned = re.sub(r"[^a-zA-Z0-9]", " ", str(value))
+
+    # Remove multiple consecutive spaces and trim
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    return cleaned
 
 
 def validate_and_clean_concept_values(
