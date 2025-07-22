@@ -22,11 +22,23 @@ Captures the value of the "value" field (e.g., 'some_value')."""
 console = Console()
 
 
+def normalize_value(value):
+    """
+    Normalize value for strict matching.
+    Only removes leading/trailing whitespace and converts to lowercase.
+    Preserves most formatting and structure.
+    """
+    if pd.isna(value) or value == "" or value is None:
+        return ""
+    return str(value).strip().lower()
+
+
 def validate_and_clean_concept_values(
     df: pd.DataFrame, resource_model: dict, concepts: dict
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Validate concept values against acceptable concepts and remove offending values.
+    Uses strict matching approach.
 
     Args:
         df: Input DataFrame
@@ -42,11 +54,10 @@ def validate_and_clean_concept_values(
     # Create a mapping of column names to their concept categories
     column_to_concept = {}
     for node_name, mapping in concept_mappings.items():
-        concept_category = mapping.get("concept_category")
-        if concept_category:
-            # Map the node name to its concept category
-            column_to_concept[node_name] = concept_category
+        if mapping.get("concept_category"):
+            column_to_concept[node_name] = mapping["concept_category"]
 
+    # Initialize validation report
     validation_report = {
         "total_rows": len(df),
         "columns_checked": [],
@@ -55,15 +66,8 @@ def validate_and_clean_concept_values(
         "details": {},
     }
 
-    # Create a copy of the dataframe and convert to object dtype to avoid PyArrow issues
+    # Create a copy of the dataframe to avoid modifying the original
     cleaned_df = df.copy()
-
-    def normalize_value(value):
-        """Normalize a value for comparison by removing non-alphanumeric characters and converting to lowercase."""
-        if pd.isna(value) or value == "":
-            return ""
-        # Convert to string, remove non-alphanumeric characters, convert to lowercase
-        return re.sub(r"[^a-zA-Z0-9]", "", str(value).lower())
 
     # Check each concept column
     for column_name, concept_category in column_to_concept.items():
@@ -77,8 +81,10 @@ def validate_and_clean_concept_values(
         if matching_column:
             validation_report["columns_checked"].append(matching_column)
 
-            # Get acceptable values for this concept category and normalize them
+            # Get acceptable values for this concept category
             acceptable_values_raw = set(concepts.get(concept_category, {}).values())
+
+            # Normalize acceptable values (minimal normalization)
             acceptable_values_normalized = {
                 normalize_value(val) for val in acceptable_values_raw
             }
@@ -86,13 +92,18 @@ def validate_and_clean_concept_values(
             # Convert column to string type to avoid PyArrow issues
             column_data = cleaned_df[matching_column].astype("string[pyarrow]")
 
-            # Normalize the column data for comparison
+            # Normalize the column data for comparison (minimal normalization)
             column_data_normalized = column_data.apply(normalize_value)
 
             # Find offending values (values that don't match any normalized acceptable value)
+            # Also check for exact matches as a fallback
             offending_mask = ~column_data_normalized.isin(
                 acceptable_values_normalized
             ) & (column_data_normalized != "")
+
+            # Additional check: look for exact matches in original values
+            exact_matches = column_data.isin(acceptable_values_raw)
+            offending_mask = offending_mask & ~exact_matches
 
             if offending_mask.any():
                 offending_count = offending_mask.sum()
