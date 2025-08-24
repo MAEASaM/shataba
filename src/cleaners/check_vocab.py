@@ -22,11 +22,66 @@ Captures the value of the "value" field (e.g., 'some_value')."""
 console = Console()
 
 
+def normalize_value(value):
+    """
+    Normalize value for strict matching.
+    Only removes leading/trailing whitespace and converts to lowercase.
+    Preserves most formatting and structure.
+    """
+    if pd.isna(value) or value == "" or value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def clean_value_for_concept_file(value):
+    """
+    Clean a value to match concept file format by replacing non-alphanumeric characters with spaces.
+    Preserves capitalization and ensures only single spaces between words.
+    """
+    if pd.isna(value) or value == "" or value is None:
+        return ""
+
+    # Convert to string and replace non-alphanumeric characters with spaces
+    cleaned = re.sub(r"[^a-zA-Z0-9]", " ", str(value))
+
+    # Remove multiple consecutive spaces and trim
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    return cleaned
+
+
+def map_to_concept_file_value(value, concept_category, concepts):
+    """
+    Map a value to its exact equivalent in the concept file.
+    Returns the exact concept file value if found, otherwise returns empty string.
+    """
+    if pd.isna(value) or value == "" or value is None:
+        return ""
+
+    # Get the acceptable values for this concept category
+    acceptable_values = concepts.get(concept_category, {})
+
+    # First, try exact match
+    if value in acceptable_values.values():
+        return value
+
+    # If no exact match, try to find the closest match by cleaning both
+    value_cleaned = clean_value_for_concept_file(value)
+
+    for concept_uuid, concept_label in acceptable_values.items():
+        concept_label_cleaned = clean_value_for_concept_file(concept_label)
+        if value_cleaned == concept_label_cleaned:
+            return concept_label  # Return the exact concept file value
+
+    # If still no match, return empty string
+    return ""
+
+
 def validate_and_clean_concept_values(
     df: pd.DataFrame, resource_model: dict, concepts: dict
 ) -> Tuple[pd.DataFrame, Dict]:
     """
-    Validate concept values against acceptable concepts and remove offending values.
+    Validate concept values against acceptable concepts and map to exact concept file values.
 
     Args:
         df: Input DataFrame
@@ -36,71 +91,103 @@ def validate_and_clean_concept_values(
     Returns:
         Tuple of (cleaned_dataframe, validation_report)
     """
+    # Create a copy to avoid modifying the original DataFrame directly
+    cleaned_df = df.copy()
+
+    # Convert all columns to object dtype to handle mixed types and allow string operations
+    for col in cleaned_df.columns:
+        if pd.api.types.is_string_dtype(
+            cleaned_df[col].dtype
+        ) or pd.api.types.is_object_dtype(cleaned_df[col].dtype):
+            cleaned_df[col] = cleaned_df[col].astype("string[pyarrow]")
+        else:
+            cleaned_df[col] = cleaned_df[col].astype(object)
+
     # Get concept mappings to identify which columns are concept fields
     concept_mappings = build_concept_mappings(resource_model, concepts)
 
     # Create a mapping of column names to their concept categories
     column_to_concept = {}
     for node_name, mapping in concept_mappings.items():
-        concept_category = mapping.get("concept_category")
-        if concept_category:
-            # Map the node name to its concept category
-            column_to_concept[node_name] = concept_category
+        if mapping["concept_category"]:
+            column_to_concept[node_name] = mapping["concept_category"]
 
     validation_report = {
-        "total_rows": len(df),
+        "total_rows_processed": len(cleaned_df),
         "columns_checked": [],
         "offending_values_found": 0,
         "offending_values_removed": 0,
+        "values_mapped": 0,
         "details": {},
     }
 
-    # Create a copy of the dataframe and convert to object dtype to avoid PyArrow issues
-    cleaned_df = df.copy()
-
     # Check each concept column
     for column_name, concept_category in column_to_concept.items():
-        if column_name in cleaned_df.columns:
-            validation_report["columns_checked"].append(column_name)
+        # Find the actual column in the dataframe (case-insensitive matching)
+        matching_column = None
+        for actual_column in cleaned_df.columns:
+            if actual_column.lower() == column_name.lower():
+                matching_column = actual_column
+                break
 
-            # Get acceptable values for this concept category
-            acceptable_values = set(concepts.get(concept_category, {}).values())
+        if matching_column:
+            validation_report["columns_checked"].append(matching_column)
 
-            # Convert column to string type to avoid PyArrow issues
-            column_data = cleaned_df[column_name].astype(str)
+            # Convert column to string type
+            column_data = cleaned_df[matching_column].astype("string[pyarrow]")
 
-            # Find offending values
-            offending_mask = (
-                ~column_data.isin(acceptable_values)
-                & (column_data != "nan")
-                & (column_data != "")
-            )
+            # Map each value to its concept file equivalent
+            mapped_values = []
+            values_mapped = 0
 
-            if offending_mask.any():
-                offending_count = offending_mask.sum()
-                validation_report["offending_values_found"] += offending_count
-                validation_report["details"][column_name] = {
+            for value in column_data:
+                mapped_value = map_to_concept_file_value(
+                    value, concept_category, concepts
+                )
+                mapped_values.append(mapped_value)
+                if mapped_value != "" and mapped_value != value:
+                    values_mapped += 1
+
+            # Update the column with mapped values
+            cleaned_df[matching_column] = mapped_values
+            validation_report["values_mapped"] += values_mapped
+
+            # Count values that couldn't be mapped (offending values)
+            unmapped_count = sum(1 for v in mapped_values if v == "")
+            if unmapped_count > 0:
+                validation_report["offending_values_found"] += unmapped_count
+                validation_report["details"][matching_column] = {
                     "concept_category": concept_category,
-                    "offending_count": offending_count,
-                    "offending_values": column_data[offending_mask].unique().tolist(),
-                    "acceptable_count": len(acceptable_values),
+                    "offending_count": unmapped_count,
+                    "offending_values": [
+                        v for i, v in enumerate(column_data) if mapped_values[i] == ""
+                    ][:5],  # Show first 5
+                    "acceptable_count": len(concepts.get(concept_category, {})),
+                    "sample_acceptable_values": list(
+                        concepts.get(concept_category, {}).values()
+                    )[:5],  # Show first 5
                 }
-
-                # Convert the column to object dtype to allow string assignment
-                cleaned_df[column_name] = cleaned_df[column_name].astype(object)
-
-                # Remove offending values by setting them to empty string
-                cleaned_df.loc[offending_mask, column_name] = ""
-                validation_report["offending_values_removed"] += offending_count
 
                 console.print(
                     Panel(
                         Text(
-                            f"Found {offending_count} offending values in column '{column_name}' "
+                            f"Found {unmapped_count} unmappable values in column '{matching_column}' "
                             f"(concept category: {concept_category}). Values removed.",
                             style="yellow",
                         ),
                         title="Validation Warning",
+                    )
+                )
+
+            if values_mapped > 0:
+                console.print(
+                    Panel(
+                        Text(
+                            f"Mapped {values_mapped} values in column '{matching_column}' "
+                            f"to exact concept file equivalents.",
+                            style="green",
+                        ),
+                        title="Value Mapping",
                     )
                 )
 
@@ -129,45 +216,54 @@ def create_validation_report_table(validation_report: dict) -> Table:
     return table
 
 
-def create_offending_values_table(validation_report: dict) -> Table:
-    """Create a rich table showing detailed offending values."""
-    if not validation_report["details"]:
+def create_offending_values_table(validation_report: Dict) -> Table:
+    """Create a Rich table showing detailed information about offending values."""
+    if not validation_report.get("details"):
         return None
 
-    table = Table(
-        title="Detailed Offending Values", show_header=True, header_style="bold yellow"
-    )
-
-    table.add_column("Column", style="cyan", no_wrap=True)
-    table.add_column("Concept Category", style="blue")
-    table.add_column("Offending Count", justify="right", style="red")
-    table.add_column("Acceptable Count", justify="right", style="green")
-    table.add_column("Sample Offending Values", style="dim")
+    table = Table(title="Offending Values Details")
+    table.add_column("Column", style="cyan")
+    table.add_column("Concept Category", style="yellow")
+    table.add_column("Offending Count", style="red")
+    table.add_column("Sample Offending Values", style="red")
+    table.add_column("Sample Acceptable Values", style="green")
 
     for column_name, details in validation_report["details"].items():
-        sample_values = details["offending_values"][:3]  # Show first 3 values
-        sample_text = ", ".join(sample_values)
-        if len(details["offending_values"]) > 3:
-            sample_text += f" ... (+{len(details['offending_values']) - 3} more)"
+        # Handle NaN values in sample values
+        sample_offending = details.get("offending_values", [])
+        sample_offending_clean = [
+            str(v) for v in sample_offending if pd.notna(v) and str(v).strip()
+        ]
+        sample_offending_text = (
+            ", ".join(sample_offending_clean[:3]) if sample_offending_clean else "None"
+        )
+
+        sample_acceptable = details.get("sample_acceptable_values", [])
+        sample_acceptable_clean = [
+            str(v) for v in sample_acceptable if pd.notna(v) and str(v).strip()
+        ]
+        sample_acceptable_text = (
+            ", ".join(sample_acceptable_clean[:3])
+            if sample_acceptable_clean
+            else "None"
+        )
 
         table.add_row(
             column_name,
-            details["concept_category"],
-            str(details["offending_count"]),
-            str(details["acceptable_count"]),
-            sample_text,
+            details.get("concept_category", ""),
+            str(details.get("offending_count", 0)),
+            sample_offending_text,
+            sample_acceptable_text,
         )
 
     return table
 
 
 def check_vocab(
-    df: pd.DataFrame,
-    resource_model: dict[str, dict[str, list[dict[str, str]]]],
-    concepts: dict[str, list[str]],
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    df: pd.DataFrame, resource_model: dict, concepts: dict
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
     """
-    Check vocabulary, validate concept values, and build concept node mappings.
+    Check vocabulary and build concept mappings.
 
     Args:
         df: Input DataFrame
@@ -175,61 +271,33 @@ def check_vocab(
         concepts: Site_concepts.json structure
 
     Returns:
-        Tuple of (concept_mappings_dataframe, cleaned_dataframe)
+        Tuple of (concept_mappings_df, cleaned_df, validation_report)
     """
-    # Validate and clean concept values first
-    console.print(
-        Panel(
-            Text(
-                "Validating concept values against acceptable concepts...", style="blue"
-            ),
-            title="🔍 Validation Phase",
-        )
-    )
-
+    # First, validate and clean concept values
     cleaned_df, validation_report = validate_and_clean_concept_values(
         df, resource_model, concepts
     )
 
-    # Display validation results
-    if validation_report["offending_values_found"] > 0:
-        console.print("\n")
-        console.print(create_validation_report_table(validation_report))
-
-        detailed_table = create_offending_values_table(validation_report)
-        if detailed_table:
-            console.print("\n")
-            console.print(detailed_table)
-    else:
-        console.print(
-            Panel(
-                Text("✅ All concept values are valid!", style="green"),
-                title="Validation Complete",
-            )
-        )
-
-    # Get concept nodes from resource model
-    concept_nodes = get_type_concept(resource_model)
-
-    # Build the complete mapping
+    # Then build concept mappings
     concept_mappings = build_concept_mappings(resource_model, concepts)
 
-    # Create a DataFrame with the mappings
-    mapping_data = []
-    for node_name, mapping in concept_mappings.items():
-        mapping_data.append(
+    # Convert to DataFrame
+    concept_mappings_df = pd.DataFrame(
+        [
             {
                 "node_name": node_name,
-                "node_id": mapping.get("node_id"),
-                "rdm_collection_uuid": mapping.get("rdm_collection_uuid"),
-                "collection_label": mapping.get("collection_label"),
-                "collection_label_id": mapping.get("collection_label_id"),
-                "concept_category": mapping.get("concept_category"),
-                "available_concepts": len(mapping.get("available_concepts", [])),
+                "node_id": mapping["node_id"],
+                "rdm_collection_uuid": mapping["rdm_collection_uuid"],
+                "collection_label": mapping["collection_label"],
+                "collection_label_id": mapping["collection_label_id"],
+                "concept_category": mapping["concept_category"],
+                "available_concepts": mapping["available_concepts"],
             }
-        )
+            for node_name, mapping in concept_mappings.items()
+        ]
+    )
 
-    return pd.DataFrame(mapping_data), cleaned_df
+    return concept_mappings_df, cleaned_df, validation_report
 
 
 def get_type_concept(

@@ -1,7 +1,11 @@
 import pandas as pd
 import argparse
 from pathlib import Path
-from cleaners.check_vocab import check_vocab, get_concept_node_summary
+from cleaners.check_vocab import (
+    check_vocab,
+    get_concept_node_summary,
+    create_offending_values_table,
+)
 import json
 from enum import Enum
 from rich.console import Console
@@ -10,6 +14,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.text import Text
 from rich import print as rprint
+from typing import Dict
 
 OUTPUT_DIR = Path("output")
 REFERENCES_DIR = Path("references")
@@ -119,6 +124,31 @@ def create_concept_mappings_table(concept_mappings_df: pd.DataFrame) -> Table:
     return table
 
 
+def create_validation_report_table(validation_report: Dict) -> Table:
+    """Create a Rich table for validation report."""
+    table = Table(title="Concept Validation Report")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", style="magenta")
+
+    table.add_row(
+        "Total Rows Processed", str(validation_report.get("total_rows_processed", 0))
+    )
+    table.add_row(
+        "Columns Checked", str(len(validation_report.get("columns_checked", [])))
+    )
+    table.add_row(
+        "Offending Values Found",
+        str(validation_report.get("offending_values_found", 0)),
+    )
+    table.add_row(
+        "Offending Values Removed",
+        str(validation_report.get("offending_values_removed", 0)),
+    )
+    table.add_row("Values Mapped", str(validation_report.get("values_mapped", 0)))
+
+    return table
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", type=Path, required=True)
@@ -181,9 +211,28 @@ def main():
             resource_model = json.load(f)
 
         progress.update(task, description="Processing concept mappings...")
-        concept_mappings_df, cleaned_df = check_vocab(df, resource_model, concepts)
+        concept_mappings_df, cleaned_df, validation_report = check_vocab(
+            df, resource_model, concepts
+        )
 
         progress.update(task, description="Complete!", completed=True)
+
+    # Display validation results
+    console.print("\n")
+    console.print(create_validation_report_table(validation_report))
+
+    if validation_report["offending_values_found"] > 0:
+        detailed_table = create_offending_values_table(validation_report)
+        if detailed_table:
+            console.print("\n")
+            console.print(detailed_table)
+    else:
+        console.print(
+            Panel(
+                Text("✅ All concept values are valid!", style="green"),
+                title="Validation Complete",
+            )
+        )
 
     # Display results
     if args.summary:
